@@ -1,0 +1,11 @@
+Alembic migrations for the Autonomous Maintenance Console.
+
+Run every command from the `backend/` directory:
+
+  uv run alembic upgrade head                          # apply migrations
+  uv run alembic revision --autogenerate -m "message"  # generate a new one
+  uv run alembic downgrade -1                          # roll one back
+  uv run alembic current                               # show applied revision
+
+DATABASE_URL is read from the environment (see the repository .env.example);
+it is never written into alembic.ini.
