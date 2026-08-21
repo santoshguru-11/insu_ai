@@ -44,6 +44,7 @@ class WorkOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=WorkOrderStatus.DRAFT,
     )
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="work_orders")
     technician_outcomes: Mapped[list[TechnicianOutcome]] = relationship(
@@ -67,6 +68,8 @@ class TechnicianOutcome(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("work_orders.id", ondelete="CASCADE"),
         nullable=False,
     )
+    technician_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    technician_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     diagnosis_confirmed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     actual_finding: Mapped[str | None] = mapped_column(Text, nullable=True)
     parts_used_json: Mapped[list[dict[str, Any]]] = mapped_column(

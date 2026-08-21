@@ -78,6 +78,37 @@ class ImmutableRecordError(AppError):
     message = "This record is append-only and cannot be modified or deleted."
 
 
+class InvalidTransitionError(AppError):
+    """An incident was asked to move somewhere the state machine forbids."""
+
+    status_code = status.HTTP_409_CONFLICT
+    code = "INVALID_WORKFLOW_TRANSITION"
+    message = "That workflow transition is not allowed from the incident's current state."
+
+
+class ApprovalStateError(AppError):
+    """Approve/reject was called on an incident that is not awaiting a decision."""
+
+    status_code = status.HTTP_409_CONFLICT
+    code = "APPROVAL_NOT_REQUIRED"
+    message = "This incident is not awaiting an approval decision."
+
+
+class CloudUnavailableError(AppError):
+    """A cloud-dependent action was attempted while the WAN link is simulated down.
+
+    Edge-side artefacts (the sentinel anomaly and the diagnosis) stay readable;
+    only planner, parts, approval, reservation and work-order actions are refused.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "CLOUD_UNAVAILABLE"
+    message = (
+        "Cloud services are unreachable for this asset. Edge diagnosis is preserved, "
+        "but planner, parts, approval and work-order actions are unavailable."
+    )
+
+
 class DatabaseUnavailableError(AppError):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     code = "DATABASE_UNAVAILABLE"

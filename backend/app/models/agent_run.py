@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
-from app.models.enums import AgentRunStatus, pg_enum
+from app.models.enums import AgentKind, AgentRunStatus, pg_enum
 
 if TYPE_CHECKING:
     from app.models.diagnosis import Diagnosis
@@ -27,6 +27,10 @@ class AgentRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         nullable=False,
     )
     agent_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Which stage of the pipeline this run belongs to.
+    agent_kind: Mapped[AgentKind | None] = mapped_column(
+        pg_enum(AgentKind, "agent_kind"), nullable=True
+    )
     agent_version: Mapped[str] = mapped_column(String(64), nullable=False)
     model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -51,5 +55,6 @@ class AgentRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         Index("ix_agent_runs_incident_id", "incident_id"),
         Index("ix_agent_runs_status", "status"),
+        Index("ix_agent_runs_agent_kind", "agent_kind"),
         Index("ix_agent_runs_started_at", "started_at"),
     )

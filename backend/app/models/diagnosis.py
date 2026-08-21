@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, CreatedAtMixin, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import EvidenceType, pg_enum
+from app.models.enums import ConfidenceBand, EvidenceType, RecommendedAction, pg_enum
 
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
@@ -33,7 +33,24 @@ class Diagnosis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     failure_mode_code: Mapped[str] = mapped_column(String(64), nullable=False)
     fmea_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
+    # Banded copy of `confidence`, kept alongside the score so the transition
+    # rules and API filters never have to re-derive thresholds.
+    confidence_band: Mapped[ConfidenceBand] = mapped_column(
+        pg_enum(ConfidenceBand, "confidence_band"),
+        nullable=False,
+        default=ConfidenceBand.MEDIUM,
+        server_default=ConfidenceBand.MEDIUM.value,
+    )
+    recommended_action: Mapped[RecommendedAction] = mapped_column(
+        pg_enum(RecommendedAction, "recommended_action"),
+        nullable=False,
+        default=RecommendedAction.MONITOR,
+        server_default=RecommendedAction.MONITOR.value,
+    )
+    # Free-text elaboration of the recommendation, shown in the console.
+    recommended_action_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A closed work order for the same failure mode, cited as precedent.
+    similar_work_order_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # Remaining useful life, with the bounds of the estimate's confidence interval.
     rul_estimate_days: Mapped[float | None] = mapped_column(Float, nullable=True)
     rul_ci_low_days: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -42,6 +59,9 @@ class Diagnosis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     incident: Mapped[Incident] = relationship(back_populates="diagnoses")
     agent_run: Mapped[AgentRun] = relationship(back_populates="diagnoses")
     evidence_items: Mapped[list[EvidenceItem]] = relationship(
+        back_populates="diagnosis", cascade="all, delete-orphan", passive_deletes=True
+    )
+    alternatives: Mapped[list[DiagnosisAlternative]] = relationship(
         back_populates="diagnosis", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -55,6 +75,36 @@ class Diagnosis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_diagnoses_incident_id", "incident_id"),
         Index("ix_diagnoses_agent_run_id", "agent_run_id"),
         Index("ix_diagnoses_failure_mode_code", "failure_mode_code"),
+        Index("ix_diagnoses_confidence_band", "confidence_band"),
+    )
+
+
+class DiagnosisAlternative(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """A failure mode the agent considered and ruled out.
+
+    Showing the discarded hypotheses (and why) is what makes the diagnosis
+    reviewable by an engineer rather than something to take on faith.
+    """
+
+    __tablename__ = "diagnosis_alternatives"
+
+    diagnosis_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("diagnoses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    failure_mode_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    rejection_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    diagnosis: Mapped[Diagnosis] = relationship(back_populates="alternatives")
+
+    __table_args__ = (
+        CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
+            name="confidence_range",
+        ),
+        Index("ix_diagnosis_alternatives_diagnosis_id", "diagnosis_id"),
     )
 
 

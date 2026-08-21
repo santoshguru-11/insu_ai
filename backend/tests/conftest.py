@@ -24,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 from alembic import command
 from app.core.config import settings
+from app.db import session as db_session
 from app.main import app
+from app.models.enums import ScenarioType
+from app.models.incident import Incident
+from app.seed.demo import seed
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -112,6 +116,100 @@ async def db_engine(migrated_database: str) -> AsyncGenerator[AsyncEngine, None]
         await engine.dispose()
 
 
+@pytest.fixture(scope="session")
+async def app_database(migrated_database: str) -> AsyncGenerator[str, None]:
+    """Point the application itself at the scratch database.
+
+    Everything the app opens a session through — the request dependency, the
+    WebSocket snapshot loader, and the out-of-band audit writer — resolves the
+    factory at call time, so this one call redirects all of them.
+    """
+    await db_session.configure(migrated_database)
+    try:
+        yield migrated_database
+    finally:
+        await db_session.dispose_engine()
+
+
+@pytest.fixture
+async def seeded(app_database: str) -> AsyncGenerator[dict[str, Incident], None]:
+    """Fresh demo data, keyed by scenario, for one test.
+
+    Re-seeding per test keeps cases independent: a test that approves the main
+    incident cannot leave it approved for the next one.
+    """
+    incidents = await seed(reset=True)
+    yield {str(incident.scenario_type): incident for incident in incidents}
+
+
+@pytest.fixture
+def main_incident(seeded: dict[str, Incident]) -> Incident:
+    """Scenario A — the `approval_required` demo incident, trace `tr_9f21`."""
+    return seeded[str(ScenarioType.NORMAL)]
+
+
+@pytest.fixture
+def low_confidence_incident(seeded: dict[str, Incident]) -> Incident:
+    """Scenario B — parked in `human_review`."""
+    return seeded[str(ScenarioType.LOW_CONFIDENCE)]
+
+
+@pytest.fixture
+def offline_incident(seeded: dict[str, Incident]) -> Incident:
+    """Scenario C — diagnosed at the edge with the cloud link down."""
+    return seeded[str(ScenarioType.OFFLINE)]
+
+
+@pytest.fixture
+def api_prefix() -> str:
+    return settings.api_prefix
+
+
+@pytest.fixture
+async def in_test_client(app_database: str) -> AsyncGenerator[object, None]:
+    """Run a `starlette.testclient.TestClient` block on its own event loop.
+
+    `TestClient` (needed for WebSocket support) drives the app from a private
+    loop in a worker thread, and asyncpg connections cannot cross event loops.
+    So the shared engine is torn down before the block and its module state is
+    cleared afterwards — the next fixture that needs it rebuilds it on whichever
+    loop is then current.
+    """
+
+    async def _run(fn):
+        await db_session.dispose_engine()
+        try:
+            return await asyncio.to_thread(fn)
+        finally:
+            # The engine now belongs to the TestClient's finished loop; drop the
+            # references rather than awaiting a dispose that loop can no longer run.
+            db_session._engine = None
+            db_session._session_factory = None
+
+    yield _run
+
+
+@pytest.fixture
+def audit_since(api: AsyncClient):
+    """Return only the audit events an incident gained after this point.
+
+    The trail is append-only and the seed reuses incident rows, so events from
+    earlier runs legitimately remain attached. Tests therefore assert on the
+    slice they caused rather than on the whole timeline.
+    """
+
+    async def _watermark(incident_id) -> int:
+        response = await api.get(f"/incidents/{incident_id}/audit", params={"limit": 500})
+        return int(response.json()["total"])
+
+    async def _since(incident_id, watermark: int) -> list[dict]:
+        response = await api.get(f"/incidents/{incident_id}/audit", params={"limit": 500})
+        return response.json()["items"][watermark:]
+
+    _since.watermark = _watermark  # type: ignore[attr-defined]
+    return _since
+
+
 @pytest.fixture
 async def db_connection(db_engine: AsyncEngine) -> AsyncGenerator[AsyncConnection, None]:
     async with db_engine.connect() as connection:
@@ -127,8 +225,20 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 
 
 @pytest.fixture
+async def api(app_database: str) -> AsyncGenerator[AsyncClient, None]:
+    """Client for the versioned API, with the app pointed at the test database."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url=f"http://testserver{settings.api_prefix}"
+    ) as async_client:
+        yield async_client
+
+
+@pytest.fixture
 def expected_tables() -> Iterator[set[str]]:
     yield {
+        "sentinel_anomalies",
+        "diagnosis_alternatives",
         "assets",
         "incidents",
         "agent_runs",

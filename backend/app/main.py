@@ -14,6 +14,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
+from app.api.v1.health import router as health_router
+from app.api.v1.websocket import router as websocket_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
@@ -45,9 +47,31 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=APP_VERSION,
         description=(
-            "Backend for the Autonomous Maintenance Console: machine anomalies, "
-            "AI diagnosis, maintenance proposals, human approval and audit trail."
+            "Backend for the Autonomous Maintenance Console.\n\n"
+            "Simulated agents detect machine anomalies, diagnose failure modes, "
+            "propose maintenance windows and check parts. **No irreversible "
+            "action — part reservation or work-order creation — happens before a "
+            "human approval decision.** Every workflow state change is written to "
+            "an append-only audit trail and pushed to subscribed consoles over "
+            "`WS /ws/incidents/{incident_id}`.\n\n"
+            "This build simulates the agent and enterprise systems; it makes no "
+            "LLM, MES, ERP or CMMS calls."
         ),
+        openapi_tags=[
+            {"name": "health", "description": "Liveness and database connectivity."},
+            {"name": "assets", "description": "The monitored equipment register."},
+            {
+                "name": "incidents",
+                "description": (
+                    "Anomalies moving through watch -> escalated -> diagnosed -> "
+                    "approval -> work order -> resolved."
+                ),
+            },
+            {
+                "name": "realtime",
+                "description": "WebSocket channel carrying live incident updates.",
+            },
+        ],
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
@@ -68,9 +92,12 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
 
-    # Versioned API, plus an unprefixed /health for probes that expect it there.
     app.include_router(api_router, prefix=settings.api_prefix)
-    app.include_router(api_router)
+    # Bare /health as well, for probes that expect it off the prefix. Hidden from
+    # the schema so /docs shows each endpoint once, under its versioned path.
+    app.include_router(health_router, include_in_schema=False)
+    # WebSocket paths are not versioned: the console connects to /ws/... directly.
+    app.include_router(websocket_router)
 
     return app
 

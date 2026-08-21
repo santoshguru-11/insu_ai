@@ -1,6 +1,6 @@
-"""Audit-event schemas.
+"""Audit-event contracts.
 
-There is deliberately no `AuditEventUpdate`: the table is append-only.
+There is deliberately no update schema: `audit_events` is append-only.
 """
 
 from __future__ import annotations
@@ -27,10 +27,16 @@ class AuditEventCreate(BaseModel):
 
 class AuditEventRead(ORMModel):
     id: uuid.UUID
-    trace_id: str
-    incident_id: uuid.UUID | None
+    trace_id: str = Field(examples=["tr_9f21"])
+    incident_id: uuid.UUID | None = None
     actor_type: ActorType
-    actor_id: str | None
-    event_type: str
-    event_payload_json: dict[str, Any]
+    actor_id: str | None = None
+    event_type: str = Field(examples=["workflow.transitioned"])
+    event_payload_json: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Transition events carry previous_state, next_state, reason and any "
+            "records the step created."
+        ),
+    )
     occurred_at: datetime

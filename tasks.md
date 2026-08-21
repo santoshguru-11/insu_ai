@@ -61,26 +61,74 @@ Delivery log for the Autonomous Maintenance Console.
 - [x] Settings parsing and CORS behaviour
 - [x] 28 tests, all passing; `ruff check` clean
 
+## Done — Task 2: Simulated workflow, APIs, approval and realtime
+
+### Pydantic contracts
+- [x] Asset, incident list item, incident detail, agent run, diagnosis,
+      diagnosis alternative, evidence item, RUL estimate, maintenance proposal,
+      part check, approval request/decision, work order, technician outcome,
+      audit event, WebSocket event, simulate-next-step request/response
+- [x] UUIDs and UTC ISO-8601 timestamps throughout
+- [x] Enums for every state, severity, confidence and decision field
+
+### Workflow
+- [x] Nine states: watch, escalated, diagnosed, human_review, approval_required,
+      approved, rejected, work_order_live, resolved
+- [x] Dedicated `WorkflowService`; no transition logic in route handlers
+- [x] Exactly the ten specified transitions; anything else returns
+      `INVALID_WORKFLOW_TRANSITION` with the reachable states
+- [x] Idempotent: re-requesting the current state is a no-op with no audit event
+- [x] Every transition audits previous state, next state, actor, reason,
+      trace id, timestamp and payload
+- [x] Approval only accepted in `approval_required`
+- [x] No reservation or work order before an approval decision exists
+
+### Database
+- [x] `diagnosis_alternatives` and `sentinel_anomalies` tables
+- [x] `incidents.scenario_type`, `cloud_available`, `human_review_reason`
+- [x] `approval_decisions.token_id`, `token_hash`, `token_expires_at`, `used_at`
+- [x] Workflow and severity enums rebuilt; migration verified reversible
+- [x] `audit_events` remains append-only
+
+### Seed
+- [x] `uv run python -m app.seed.demo` (`--reset`), idempotent on
+      `asset_code` and `trace_id`
+- [x] Scenario A `tr_9f21` / CAL-04-DRIVE in `approval_required`
+- [x] Scenario B `tr_5c07` in `human_review`, confidence 0.52, two plausible modes
+- [x] Scenario C `tr_1d88` with `cloud_available = false`
+
+### API
+- [x] Assets list/detail with filters; incidents list/detail with filters
+- [x] Audit timeline, approve, reject, simulate-next-step, outcome
+- [x] `WS /ws/incidents/{incident_id}` with snapshot and broadcasts
+- [x] Tags, summaries and response models on every route; `/docs` renders all ten
+
+### Tests
+- [x] 75 tests passing, `ruff check` and `ruff format` clean
+- [x] Asset listing, incident listing/filtering, full detail, audit timeline
+- [x] Valid approval, invalid approval state, rejection
+- [x] Low-confidence cannot auto-advance; offline blocks cloud actions
+- [x] Outcome capture; invalid workflow transition
+- [x] WebSocket update received after approval
+- [x] Audit events exist for every workflow transition
+
 ## Next
 
-### Task 2 — Domain API surface
-- [ ] CRUD endpoints for assets and incidents
-- [ ] Read endpoints for diagnoses, evidence, proposals and work orders
-- [ ] Pagination, filtering and sorting conventions
-- [ ] Repositories and services for the remaining tables
-- [ ] Audit events emitted on every state transition
-
-### Task 3 — Approval workflow
-- [ ] Proposal submission and the approval state machine
-- [ ] Single-use approval tokens with expiry (hash comparison only)
-- [ ] Enforce that irreversible actions require a recorded approval
+### Task 3 — Domain API surface
+- [ ] Write endpoints for assets and incidents (today: read plus workflow actions)
+- [ ] Sorting conventions and cursor pagination for large result sets
+- [ ] Repositories for the remaining child tables
 
 ### Task 4 — React frontend
 - [ ] Vite + React + TypeScript scaffold in `frontend/`
 - [ ] Incident list and detail views with the diagnosis evidence trail
 - [ ] Approval screen and the audit timeline
 
-### Task 5 — Integrations (explicitly out of scope until then)
+### Task 5 — Scaling and integrations
+- [ ] Replace the in-memory WebSocket manager with Redis pub/sub or NATS
+- [ ] Verify a presented approval token against its stored hash on redemption
+
+### Task 6 — Integrations (explicitly out of scope until then)
 - [ ] Authentication and authorisation
 - [ ] LLM / MCP diagnostic agents
 - [ ] Litmus / MES / ERP / CMMS connectors

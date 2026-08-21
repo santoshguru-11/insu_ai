@@ -39,12 +39,14 @@ class ApprovalDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     approver_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     approver_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Only the hash of the single-use approval token is persisted; the token
-    # itself is handed to the approver and never stored.
-    approval_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Scoped single-use approval token. Only the id and a SHA-256 hash are
+    # persisted; the token itself is returned once and never stored.
+    token_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     incident: Mapped[Incident] = relationship(back_populates="approval_decisions")
@@ -56,4 +58,5 @@ class ApprovalDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_approval_decisions_proposal_id", "proposal_id"),
         Index("ix_approval_decisions_incident_id_decision", "incident_id", "decision"),
         Index("ix_approval_decisions_token_expires_at", "token_expires_at"),
+        Index("ix_approval_decisions_token_id", "token_id"),
     )

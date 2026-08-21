@@ -37,6 +37,7 @@ class MaintenanceProposal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     proposed_start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    proposed_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_hours: Mapped[float] = mapped_column(Float, nullable=False)
     # Days of remaining useful life still left if the work happens as proposed.
     rul_margin_days: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -46,6 +47,11 @@ class MaintenanceProposal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=ProductionImpact.NONE,
     )
     crew_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # True when the window coincides with a changeover the line already planned,
+    # so the repair costs no extra production time.
+    planned_changeover: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     status: Mapped[ProposalStatus] = mapped_column(
         pg_enum(ProposalStatus, "proposal_status"),
         nullable=False,
@@ -92,6 +98,8 @@ class PartCheck(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=PartCheckStatus.PENDING,
     )
+    # Set only once an approval has authorised the reservation.
+    reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     maintenance_proposal: Mapped[MaintenanceProposal] = relationship(back_populates="part_checks")
 

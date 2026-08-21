@@ -6,12 +6,12 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import Severity, WorkflowStatus, pg_enum
+from app.models.enums import ScenarioType, Severity, WorkflowStatus, pg_enum
 
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.asset import Asset
     from app.models.diagnosis import Diagnosis
     from app.models.maintenance import MaintenanceProposal
+    from app.models.sentinel import SentinelAnomaly
     from app.models.work_order import WorkOrder
 
 
@@ -36,19 +37,37 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     severity: Mapped[Severity] = mapped_column(
         pg_enum(Severity, "severity"),
         nullable=False,
-        default=Severity.WARNING,
+        default=Severity.ISO_20816_3_BAND_B,
     )
     workflow_status: Mapped[WorkflowStatus] = mapped_column(
         pg_enum(WorkflowStatus, "workflow_status"),
         nullable=False,
-        default=WorkflowStatus.DETECTED,
+        default=WorkflowStatus.WATCH,
     )
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- simulation controls -------------------------------------------------
+    scenario_type: Mapped[ScenarioType] = mapped_column(
+        pg_enum(ScenarioType, "scenario_type"),
+        nullable=False,
+        default=ScenarioType.NORMAL,
+        server_default=ScenarioType.NORMAL.value,
+    )
+    # False stands in for a WAN outage: the edge keeps its diagnosis, but every
+    # cloud-dependent action (planner, parts, approval, work order) is refused.
+    cloud_available: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    # Why a human was pulled in — set when entering human_review.
+    human_review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     asset: Mapped[Asset] = relationship(back_populates="incidents")
+    sentinel_anomalies: Mapped[list[SentinelAnomaly]] = relationship(
+        back_populates="incident", cascade="all, delete-orphan", passive_deletes=True
+    )
     agent_runs: Mapped[list[AgentRun]] = relationship(
         back_populates="incident", cascade="all, delete-orphan", passive_deletes=True
     )
@@ -71,6 +90,7 @@ class Incident(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_incidents_trace_id", "trace_id"),
         Index("ix_incidents_detected_at", "detected_at"),
         Index("ix_incidents_severity", "severity"),
+        Index("ix_incidents_scenario_type", "scenario_type"),
         # Supports the console's default view: open incidents on one asset, newest first.
         Index("ix_incidents_asset_id_workflow_status", "asset_id", "workflow_status"),
     )

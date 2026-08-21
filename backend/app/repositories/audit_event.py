@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.audit import AuditEvent
 from app.repositories.base import ReadOnlyRepository
@@ -35,6 +35,12 @@ class AuditEventRepository(ReadOnlyRepository[AuditEvent]):
             .offset(offset)
         )
         return result.scalars().all()
+
+    async def count_by_incident(self, incident_id: uuid.UUID) -> int:
+        result = await self.session.execute(
+            select(func.count(AuditEvent.id)).where(AuditEvent.incident_id == incident_id)
+        )
+        return int(result.scalar_one())
 
     async def list_by_incident(
         self, incident_id: uuid.UUID, *, limit: int = 200, offset: int = 0
